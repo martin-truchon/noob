@@ -216,17 +216,17 @@ void editor_move_cursor(char key)
 			if (editor.cursor_x != 0)
 				editor.cursor_x--;
 			break;
-		case 'j':
-			if (editor.cursor_y != editor.screen_cols - 1)
-				editor.cursor_y++;
+		case 'l':
+			if (editor.cursor_x != editor.screen_cols - 1)
+				editor.cursor_x++;
 			break;
 		case 'k':
 			if (editor.cursor_y != 0)
 				editor.cursor_y--;
 			break;
-		case 'l':
-			if (editor.cursor_x != editor.screen_rows - 1)
-				editor.cursor_x++;
+		case 'j':
+			if (editor.cursor_y != editor.screen_rows - 1)
+				editor.cursor_y++;
 			break;
 	}
 }
