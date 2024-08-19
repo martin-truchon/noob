@@ -16,6 +16,11 @@
 #define ESCAPE_SEQ(s) "\x1b[" s
 
 /*** data ***/
+struct editorRow
+{
+	int size;
+	char *chars;
+};
 
 struct editorConfig
 {
@@ -23,6 +28,8 @@ struct editorConfig
 	int cursor_y;
 	int screen_rows;
 	int screen_cols;
+	int num_rows;
+	struct editorRow row;
 	struct termios orig_termios;
 };
 
@@ -82,8 +89,7 @@ char editor_read_key()
 int get_window_size(int *rows, int *cols)
 {
 	struct winsize size;
-
-	int ioctl_result = ioctl(STDOUT_FILENO, TIOCGWINSZ, &size);
+	int ioctl_result = ioctl(0, TIOCGWINSZ, &size);
 	if (ioctl_result == -1 || size.ws_col == 0) {
 		return -1;
 	}
@@ -93,8 +99,21 @@ int get_window_size(int *rows, int *cols)
 		return 0;
 	}
 }
+/*** file i/o ***/
 
-/** append buffer ***/
+void editor_open()
+{
+	char *line = "Hello, World!";
+	ssize_t linelen = 13;
+
+	editor.row.size = linelen;
+	editor.row.chars = (char*)malloc(linelen + 1);
+	memcpy(editor.row.chars, line, linelen);
+	editor.row.chars[linelen] = '\0';
+	editor.num_rows = 1;
+}
+
+/*** append buffer ***/
 
 struct append_buffer
 {
@@ -147,10 +166,21 @@ void editor_draw_welcome(struct append_buffer *ab)
 void editor_draw_rows(struct append_buffer *ab)
 {
 	for (int i = 0; i < editor.screen_rows; i++) {
-		if (i == editor.screen_rows / 3)
-			editor_draw_welcome(ab);
-		else
-			ab_append(ab, "~", 1);
+		if (i >= editor.num_rows) {
+			if (i == editor.screen_rows / 3) {
+				editor_draw_welcome(ab);
+			}
+			else {
+				ab_append(ab, "~", 1);
+			}
+		}
+		else {
+			int len = editor.row.size;
+			if (len > editor.screen_cols) {
+				len = editor.screen_cols;
+			}
+			ab_append(ab, editor.row.chars, len);
+		}
 
 		ab_append(ab, ESCAPE_SEQ("K"), 3);
 		if (i < editor.screen_rows - 1) {
@@ -226,6 +256,7 @@ void init_editor()
 {
 	editor.cursor_x = 0;
 	editor.cursor_y = 0;
+	editor.num_rows = 0;
 
 	int result = get_window_size(&editor.screen_rows, &editor.screen_cols);
 	if (result == -1) {
@@ -237,6 +268,8 @@ int main()
 {
 	enable_raw_mode();
 	init_editor();
+	editor_open();
+
 	while (1) {
 		editor_refresh_screen();
 		editor_process_keypress();
