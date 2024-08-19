@@ -1,4 +1,7 @@
 /*** includes ***/
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
 
 #include <asm-generic/ioctls.h>
 #include <errno.h>
@@ -101,16 +104,30 @@ int get_window_size(int *rows, int *cols)
 }
 /*** file i/o ***/
 
-void editor_open()
+void editor_open(char *filename)
 {
-	char *line = "Hello, World!";
-	ssize_t linelen = 13;
+	FILE *file = fopen(filename, "r");
+	if (!file) {
+		die("Could not open file");
+	}
 
-	editor.row.size = linelen;
-	editor.row.chars = (char*)malloc(linelen + 1);
-	memcpy(editor.row.chars, line, linelen);
-	editor.row.chars[linelen] = '\0';
-	editor.num_rows = 1;
+	char *line = NULL;
+	size_t line_cap = 0;
+	ssize_t line_len;
+	line_len = getline(&line, &line_cap, file);
+	if (line_len != -1) {
+		while (line_len > 0 && (line[line_len - 1] == '\n' || line[line_len - 1] == '\r')) {
+			line_len--;
+		}
+
+		editor.row.size = line_len;
+		editor.row.chars = (char *)malloc(line_len + 1);
+		memcpy(editor.row.chars, line, line_len);
+		editor.row.chars[line_len] = '\0';
+		editor.num_rows = 1;
+	}
+	free(line);
+	fclose(file);
 }
 
 /*** append buffer ***/
@@ -167,7 +184,7 @@ void editor_draw_rows(struct append_buffer *ab)
 {
 	for (int i = 0; i < editor.screen_rows; i++) {
 		if (i >= editor.num_rows) {
-			if (i == editor.screen_rows / 3) {
+			if (editor.num_rows == 0 && i == editor.screen_rows / 3) {
 				editor_draw_welcome(ab);
 			}
 			else {
@@ -264,11 +281,13 @@ void init_editor()
 	}
 }
 
-int main()
+int main(int argc, char *argv[])
 {
 	enable_raw_mode();
 	init_editor();
-	editor_open();
+	if (argc >= 2) {
+		editor_open(argv[1]);
+	}
 
 	while (1) {
 		editor_refresh_screen();
