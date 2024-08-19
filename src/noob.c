@@ -19,6 +19,8 @@
 
 struct editorConfig
 {
+	int cursor_x;
+	int cursor_y;
 	int screen_rows;
 	int screen_cols;
 	struct termios orig_termios;
@@ -166,7 +168,9 @@ void editor_refresh_screen()
 
 	editor_draw_rows(&ab);
 
-	ab_append(&ab, ESCAPE_SEQ("H"), 3);
+	char buffer[32];
+	snprintf(buffer, sizeof(buffer), "\x1b[%d;%dH", editor.cursor_y + 1, editor.cursor_x + 1);
+	ab_append(&ab, buffer, strlen(buffer));
 	ab_append(&ab, ESCAPE_SEQ("?25h"), 6);
 
 	write(STDOUT_FILENO, ab.buffer, ab.len);
@@ -174,6 +178,28 @@ void editor_refresh_screen()
 }
 
 /*** input ***/
+
+void editor_move_cursor(char key)
+{
+	switch (key) {
+		case 'h':
+			if (editor.cursor_x != 0)
+				editor.cursor_x--;
+			break;
+		case 'j':
+			if (editor.cursor_y != editor.screen_cols - 1)
+				editor.cursor_y++;
+			break;
+		case 'k':
+			if (editor.cursor_y != 0)
+				editor.cursor_y--;
+			break;
+		case 'l':
+			if (editor.cursor_x != editor.screen_rows - 1)
+				editor.cursor_x++;
+			break;
+	}
+}
 
 void editor_process_keypress()
 {
@@ -185,6 +211,12 @@ void editor_process_keypress()
 			write(STDOUT_FILENO, ESCAPE_SEQ("H"), 3);
 			exit(0);
 			break;
+		case 'h':
+		case 'j':
+		case 'k':
+		case 'l':
+			editor_move_cursor(c);
+			break;
 	}
 }
 
@@ -192,6 +224,9 @@ void editor_process_keypress()
 
 void init_editor()
 {
+	editor.cursor_x = 0;
+	editor.cursor_y = 0;
+
 	int result = get_window_size(&editor.screen_rows, &editor.screen_cols);
 	if (result == -1) {
 		die("Error while trying to get the window size");
