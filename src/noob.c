@@ -3,7 +3,6 @@
 #define _BSD_SOURCE
 #define _GNU_SOURCE
 
-#include <asm-generic/ioctls.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,7 +31,7 @@ struct editorConfig
 	int screen_rows;
 	int screen_cols;
 	int num_rows;
-	struct editorRow row;
+	struct editorRow *rows;
 	struct termios orig_termios;
 };
 
@@ -102,6 +101,18 @@ int get_window_size(int *rows, int *cols)
 		return 0;
 	}
 }
+
+void editor_append_row(char *line, size_t line_len) {
+	editor.rows = realloc(editor.rows, sizeof(struct editorRow) * (editor.num_rows + 1));
+
+	int at = editor.num_rows;
+	editor.rows[at].size = line_len;
+	editor.rows[at].chars = malloc(line_len + 1);
+	memcpy(editor.rows[at].chars, line, line_len);
+	editor.rows[at].chars[line_len] = '\0';
+	editor.num_rows++;
+}
+
 /*** file i/o ***/
 
 void editor_open(char *filename)
@@ -114,17 +125,11 @@ void editor_open(char *filename)
 	char *line = NULL;
 	size_t line_cap = 0;
 	ssize_t line_len;
-	line_len = getline(&line, &line_cap, file);
-	if (line_len != -1) {
-		while (line_len > 0 && (line[line_len - 1] == '\n' || line[line_len - 1] == '\r')) {
+	while ((line_len = getline(&line, &line_cap, file)) != -1) {
+			while (line_len > 0 && (line[line_len - 1] == '\n' || line[line_len - 1] == '\r')) {
 			line_len--;
 		}
-
-		editor.row.size = line_len;
-		editor.row.chars = (char *)malloc(line_len + 1);
-		memcpy(editor.row.chars, line, line_len);
-		editor.row.chars[line_len] = '\0';
-		editor.num_rows = 1;
+		editor_append_row(line, line_len);
 	}
 	free(line);
 	fclose(file);
@@ -192,11 +197,11 @@ void editor_draw_rows(struct append_buffer *ab)
 			}
 		}
 		else {
-			int len = editor.row.size;
+			int len = editor.rows[i].size;
 			if (len > editor.screen_cols) {
 				len = editor.screen_cols;
 			}
-			ab_append(ab, editor.row.chars, len);
+			ab_append(ab, editor.rows[i].chars, len);
 		}
 
 		ab_append(ab, ESCAPE_SEQ("K"), 3);
@@ -274,6 +279,7 @@ void init_editor()
 	editor.cursor_x = 0;
 	editor.cursor_y = 0;
 	editor.num_rows = 0;
+	editor.rows = NULL;
 
 	int result = get_window_size(&editor.screen_rows, &editor.screen_cols);
 	if (result == -1) {
