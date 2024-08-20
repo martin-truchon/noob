@@ -18,6 +18,7 @@
 #define ESCAPE_SEQ(s) "\x1b[" s
 
 /*** data ***/
+
 struct editorRow
 {
 	int size;
@@ -26,10 +27,9 @@ struct editorRow
 
 struct editorConfig
 {
-	int cursor_x;
-	int cursor_y;
-	int screen_rows;
-	int screen_cols;
+	int cursor_x, cursor_y;
+	int screen_rows,screen_cols;
+	int row_offset, col_offset;
 	int num_rows;
 	struct editorRow *rows;
 	struct termios orig_termios;
@@ -159,6 +159,24 @@ void ab_free(struct append_buffer *ab)
 }
 
 /*** output ***/
+void editor_scroll()
+{
+	if (editor.cursor_y < editor.row_offset) {
+		editor.row_offset = editor.cursor_y;
+	}
+
+	if (editor.cursor_y >= editor.row_offset + editor.screen_rows) {
+		editor.row_offset = editor.cursor_y - editor.screen_rows + 1;
+	}
+
+	if (editor.cursor_x < editor.col_offset) {
+		editor.col_offset = editor.cursor_x;
+	}
+
+	if (editor.cursor_x >= editor.col_offset + editor.screen_cols) {
+		editor.col_offset = editor.cursor_x - editor.screen_cols + 1;
+	}
+}
 
 void editor_draw_welcome(struct append_buffer *ab)
 {
@@ -188,7 +206,8 @@ void editor_draw_welcome(struct append_buffer *ab)
 void editor_draw_rows(struct append_buffer *ab)
 {
 	for (int i = 0; i < editor.screen_rows; i++) {
-		if (i >= editor.num_rows) {
+		int current_row = i + editor.row_offset;
+		if (current_row >= editor.num_rows) {
 			if (editor.num_rows == 0 && i == editor.screen_rows / 3) {
 				editor_draw_welcome(ab);
 			}
@@ -197,11 +216,14 @@ void editor_draw_rows(struct append_buffer *ab)
 			}
 		}
 		else {
-			int len = editor.rows[i].size;
+			int len = editor.rows[current_row].size - editor.col_offset;
+			if (len < 0) {
+				len = 0;
+			}
 			if (len > editor.screen_cols) {
 				len = editor.screen_cols;
 			}
-			ab_append(ab, editor.rows[i].chars, len);
+			ab_append(ab, &editor.rows[current_row].chars[editor.col_offset], len);
 		}
 
 		ab_append(ab, ESCAPE_SEQ("K"), 3);
@@ -213,6 +235,8 @@ void editor_draw_rows(struct append_buffer *ab)
 
 void editor_refresh_screen()
 {
+	editor_scroll();
+
 	struct append_buffer ab = { NULL, 0 };
 
 	ab_append(&ab, ESCAPE_SEQ("?25l"), 6);
@@ -221,7 +245,13 @@ void editor_refresh_screen()
 	editor_draw_rows(&ab);
 
 	char buffer[32];
-	snprintf(buffer, sizeof(buffer), "\x1b[%d;%dH", editor.cursor_y + 1, editor.cursor_x + 1);
+	snprintf(buffer,
+	  sizeof(buffer),
+	  ESCAPE_SEQ("%d;%dH"),
+	  editor.cursor_y - editor.row_offset + 1,
+	  editor.cursor_x - editor.col_offset + 1
+	);
+	
 	ab_append(&ab, buffer, strlen(buffer));
 	ab_append(&ab, ESCAPE_SEQ("?25h"), 6);
 
@@ -231,15 +261,24 @@ void editor_refresh_screen()
 
 /*** input ***/
 
+struct editorRow *get_current_row()
+{
+	if (editor.cursor_y >= editor.num_rows)
+		return NULL;
+
+	return &editor.rows[editor.cursor_y];
+}
+
 void editor_move_cursor(char key)
 {
+	struct editorRow *row = get_current_row();
 	switch (key) {
 		case 'h':
 			if (editor.cursor_x != 0)
 				editor.cursor_x--;
 			break;
 		case 'l':
-			if (editor.cursor_x != editor.screen_cols - 1)
+			if (row && editor.cursor_x < row->size)
 				editor.cursor_x++;
 			break;
 		case 'k':
@@ -247,9 +286,15 @@ void editor_move_cursor(char key)
 				editor.cursor_y--;
 			break;
 		case 'j':
-			if (editor.cursor_y != editor.screen_rows - 1)
+			if (editor.cursor_y < editor.num_rows)
 				editor.cursor_y++;
 			break;
+	}
+	
+	row = get_current_row();
+	int row_len = row ? row->size : 0;
+	if (editor.cursor_x > row_len) {
+		editor.cursor_x = row_len;
 	}
 }
 
@@ -279,6 +324,8 @@ void init_editor()
 	editor.cursor_x = 0;
 	editor.cursor_y = 0;
 	editor.num_rows = 0;
+	editor.row_offset = 0;
+	editor.col_offset = 0;
 	editor.rows = NULL;
 
 	int result = get_window_size(&editor.screen_rows, &editor.screen_cols);
