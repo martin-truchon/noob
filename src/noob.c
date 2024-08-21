@@ -3,6 +3,7 @@
 #define _BSD_SOURCE
 #define _GNU_SOURCE
 
+#include "string.c"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,6 +15,7 @@
 /*** defines ***/
 
 #define NOOB_VERSION "1.0.0"
+#define NOOB_TAB_STOP 8
 #define CTRL_KEY(k) ((k) & 0x1f)
 #define ESCAPE_SEQ(s) "\x1b[" s
 
@@ -22,12 +24,14 @@
 struct editorRow
 {
 	int size;
+	int render_size;
 	char *chars;
+	char *render;
 };
 
 struct editorConfig
 {
-	int cursor_x, cursor_y;
+	int cursor_x, cursor_y, render_x;
 	int screen_rows,screen_cols;
 	int row_offset, col_offset;
 	int num_rows;
@@ -101,6 +105,40 @@ int get_window_size(int *rows, int *cols)
 		return 0;
 	}
 }
+int editor_row_cursor_x_to_render_x(struct editorRow *row, int cursor_x)
+{
+	int render_x = 0;
+
+	for (int i = 0; i < cursor_x; i++) {
+		if (row->chars[i] == '\t') {
+			render_x += (NOOB_TAB_STOP - 1) - (render_x % NOOB_TAB_STOP);
+		}
+		render_x++;
+	}
+	return render_x;
+}
+
+void editor_update_row(struct editorRow *row)
+{
+	int index = 0;
+	int tab_count = char_count(row->chars, row->size, '\t');
+
+	free(row->render);
+	row->render = malloc(row->size + tab_count * (NOOB_TAB_STOP - 1) + 1);
+	
+	for (int i = 0; i < row->size; i++)
+	{
+		if (row->chars[i] == '\t') {
+			row->render[index++] = ' ';
+			while (index % NOOB_TAB_STOP != 0) row->render[index++] = ' ';
+		}
+		else {
+			row->render[index++] = row->chars[i];
+		}
+	}
+	row->render[index] = '\0';
+	row->render_size = index;
+}
 
 void editor_append_row(char *line, size_t line_len) {
 	editor.rows = realloc(editor.rows, sizeof(struct editorRow) * (editor.num_rows + 1));
@@ -110,6 +148,11 @@ void editor_append_row(char *line, size_t line_len) {
 	editor.rows[at].chars = malloc(line_len + 1);
 	memcpy(editor.rows[at].chars, line, line_len);
 	editor.rows[at].chars[line_len] = '\0';
+
+	editor.rows[at].render_size = 0;
+	editor.rows[at].render = NULL;
+	editor_update_row(&editor.rows[at]);
+
 	editor.num_rows++;
 }
 
@@ -161,6 +204,11 @@ void ab_free(struct append_buffer *ab)
 /*** output ***/
 void editor_scroll()
 {
+	editor.render_x = 0;
+	if (editor.cursor_y < editor.num_rows) {
+		editor.render_x = editor_row_cursor_x_to_render_x(&editor.rows[editor.cursor_y], editor.cursor_x);
+	}
+
 	if (editor.cursor_y < editor.row_offset) {
 		editor.row_offset = editor.cursor_y;
 	}
@@ -170,11 +218,11 @@ void editor_scroll()
 	}
 
 	if (editor.cursor_x < editor.col_offset) {
-		editor.col_offset = editor.cursor_x;
+		editor.col_offset = editor.render_x;
 	}
 
 	if (editor.cursor_x >= editor.col_offset + editor.screen_cols) {
-		editor.col_offset = editor.cursor_x - editor.screen_cols + 1;
+		editor.col_offset = editor.render_x - editor.screen_cols + 1;
 	}
 }
 
@@ -216,14 +264,14 @@ void editor_draw_rows(struct append_buffer *ab)
 			}
 		}
 		else {
-			int len = editor.rows[current_row].size - editor.col_offset;
+			int len = editor.rows[current_row].render_size - editor.col_offset;
 			if (len < 0) {
 				len = 0;
 			}
 			if (len > editor.screen_cols) {
 				len = editor.screen_cols;
 			}
-			ab_append(ab, &editor.rows[current_row].chars[editor.col_offset], len);
+			ab_append(ab, &editor.rows[current_row].render[editor.col_offset], len);
 		}
 
 		ab_append(ab, ESCAPE_SEQ("K"), 3);
@@ -249,7 +297,7 @@ void editor_refresh_screen()
 	  sizeof(buffer),
 	  ESCAPE_SEQ("%d;%dH"),
 	  editor.cursor_y - editor.row_offset + 1,
-	  editor.cursor_x - editor.col_offset + 1
+	  editor.render_x - editor.col_offset + 1
 	);
 	
 	ab_append(&ab, buffer, strlen(buffer));
@@ -290,7 +338,7 @@ void editor_move_cursor(char key)
 				editor.cursor_y++;
 			break;
 	}
-	
+
 	row = get_current_row();
 	int row_len = row ? row->size : 0;
 	if (editor.cursor_x > row_len) {
@@ -323,6 +371,7 @@ void init_editor()
 {
 	editor.cursor_x = 0;
 	editor.cursor_y = 0;
+	editor.render_x = 0;
 	editor.num_rows = 0;
 	editor.row_offset = 0;
 	editor.col_offset = 0;
