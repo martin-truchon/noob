@@ -179,6 +179,30 @@ void editor_insert_char(int c)
 	editor.cursor_x++;
 }
 
+void editor_row_delete_char(struct editorRow *row, int at)
+{
+	if (at < 0 || at > row->size - 1) return;
+
+	memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
+	row->size--;
+	editor_update_row(row);
+}
+
+void editor_delete_char()
+{
+	if (editor.cursor_y == editor.num_rows)
+		return;
+
+	struct editorRow *row = &editor.rows[editor.cursor_y];
+	if (editor.cursor_x >= 0) {
+		editor_row_delete_char(row, editor.cursor_x);
+		if (editor.cursor_x - 1 >= 0)
+			editor.cursor_x--;
+		else
+			editor.cursor_x = 0;
+	}
+}
+
 /*** file i/o ***/
 
 void editor_open(char *filename)
@@ -349,7 +373,7 @@ void editor_move_cursor(char key)
 				editor.cursor_x--;
 			break;
 		case 'l':
-			if (row && editor.cursor_x < row->size)
+			if (row && editor.cursor_x < row->size - 1)
 				editor.cursor_x++;
 			break;
 		case 'k':
@@ -378,6 +402,9 @@ void editor_process_keypress()
 			write(STDOUT_FILENO, ESCAPE_SEQ("2J"), 4);
 			write(STDOUT_FILENO, ESCAPE_SEQ("H"), 3);
 			exit(0);
+			break;
+		case 'x':
+			editor_delete_char();
 			break;
 		case 'h':
 		case 'j':
