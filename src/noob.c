@@ -4,6 +4,8 @@
 #define _GNU_SOURCE
 
 #include "string.c"
+#include "window.c"
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,19 +95,6 @@ char editor_read_key()
 	return c;
 }
 
-int get_window_size(int *rows, int *cols)
-{
-	struct winsize size;
-	int ioctl_result = ioctl(0, TIOCGWINSZ, &size);
-	if (ioctl_result == -1 || size.ws_col == 0) {
-		return -1;
-	}
-	else {
-		*rows = size.ws_row;
-		*cols = size.ws_col;
-		return 0;
-	}
-}
 int editor_row_cursor_x_to_render_x(struct editorRow *row, int cursor_x)
 {
 	int render_x = 0;
