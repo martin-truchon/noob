@@ -3,6 +3,7 @@
 #define _BSD_SOURCE
 #define _GNU_SOURCE
 
+#include "append_buffer.c"
 #include "string.c"
 #include "window.c"
 
@@ -214,29 +215,6 @@ void editor_open(char *filename)
 	}
 	free(line);
 	fclose(file);
-}
-
-/*** append buffer ***/
-
-struct append_buffer
-{
-	char *buffer;
-	int len;
-};
-
-void ab_append(struct append_buffer *ab, const char *s, int len)
-{
-	char *new = realloc(ab->buffer, ab->len + len);
-
-	if (new == NULL) return;
-	memcpy(&new[ab->len], s, len);
-	ab->buffer = new;
-	ab->len += len;
-}
-
-void ab_free(struct append_buffer *ab)
-{
-	free(ab->buffer);
 }
 
 /*** output ***/
