@@ -37,6 +37,7 @@ struct editorConfig
 	int num_rows;
 	struct editorRow *rows;
 	struct termios orig_termios;
+	char *filename;
 };
 
 struct editorConfig editor;
@@ -208,6 +209,7 @@ void editor_delete_char()
 void editor_open(char *filename)
 {
 	FILE *file = fopen(filename, "r");
+	editor.filename = strdup(filename);
 	if (!file) {
 		die("Could not open file");
 	}
@@ -322,10 +324,31 @@ void editor_draw_rows(struct append_buffer *ab)
 		}
 
 		ab_append(ab, ESCAPE_SEQ("K"), 3);
-		if (i < editor.screen_rows - 1) {
-			ab_append(ab, "\r\n", 2);
+		ab_append(ab, "\r\n", 2);
+	}
+}
+
+void editor_draw_status_bar(struct append_buffer *ab)
+{
+	ab_append(ab, ESCAPE_SEQ("7m"), 4);
+	char status[80], right_status[80];
+	char *filename = editor.filename;
+	int len = snprintf(status, sizeof(status), "%.20s - %d lines", filename ? filename : "New file", editor.num_rows);
+	int right_len = snprintf(right_status, sizeof(right_status), "%d:%d  ", editor.cursor_x + 1, editor.cursor_y+1);
+
+	if (len > editor.screen_cols) len = editor.screen_cols;
+	ab_append(ab, status, len);
+	while (len < editor.screen_cols) {
+		if (editor.screen_cols - len == right_len) {
+			ab_append(ab, right_status, right_len);
+			break;
+		}
+		else {
+			ab_append(ab, " ", 1);
+			len++;
 		}
 	}
+	ab_append(ab, ESCAPE_SEQ("m"), 3);
 }
 
 void editor_refresh_screen()
@@ -338,6 +361,7 @@ void editor_refresh_screen()
 	ab_append(&ab, ESCAPE_SEQ("H"), 3);
 
 	editor_draw_rows(&ab);
+	editor_draw_status_bar(&ab);
 
 	char buffer[32];
 	snprintf(buffer,
@@ -389,7 +413,7 @@ void editor_move_cursor(char key)
 	row = get_current_row();
 	int row_len = row ? row->size : 0;
 	if (editor.cursor_x > row_len) {
-		editor.cursor_x = row_len;
+		editor.cursor_x = row_len ? row_len - 1 : 0;
 	}
 }
 
@@ -428,11 +452,13 @@ void init_editor()
 	editor.row_offset = 0;
 	editor.col_offset = 0;
 	editor.rows = NULL;
+	editor.filename = NULL;
 
 	int result = get_window_size(&editor.screen_rows, &editor.screen_cols);
 	if (result == -1) {
 		die("Error while trying to get the window size");
 	}
+	editor.screen_rows -= 1;
 }
 
 int main(int argc, char *argv[])
