@@ -24,6 +24,12 @@
 
 /*** data ***/
 
+enum Mode
+{
+	NORMAL,
+	INSERT
+};
+
 struct editorRow
 {
 	int size;
@@ -40,6 +46,7 @@ struct editorConfig
 	int num_rows;
 	struct editorRow *rows;
 	struct termios orig_termios;
+	enum Mode mode;
 	char *filename;
 };
 
@@ -299,8 +306,10 @@ void editor_draw_status_bar(struct append_buffer *ab)
 {
 	ab_append(ab, ESCAPE_SEQ("7m"), 4);
 	char status[80], right_status[80];
-	char *filename = editor.filename;
-	int len = snprintf(status, sizeof(status), "%.20s - %d lines", filename ? filename : "New file", editor.num_rows);
+	char *filename = editor.filename ? editor.filename : "New File";
+	char *mode = editor.mode == NORMAL ? "NORMAL" : "INSERT";
+
+	int len = snprintf(status, sizeof(status), "%s  %.20s - %d lines", mode, filename, editor.num_rows);
 	int right_len = snprintf(right_status, sizeof(right_status), "%d:%d  ", editor.cursor_x + 1, editor.cursor_y+1);
 
 	if (len > editor.screen_cols) len = editor.screen_cols;
@@ -384,10 +393,8 @@ void editor_move_cursor(char key)
 	}
 }
 
-void editor_process_keypress()
+void editor_process_normal_keypress(char c)
 {
-	char c = editor_read_key();
-
 	switch (c) {
 		case CTRL_KEY('q'):
 			write(STDOUT_FILENO, ESCAPE_SEQ("2J"), 4);
@@ -403,9 +410,32 @@ void editor_process_keypress()
 		case 'l':
 			editor_move_cursor(c);
 			break;
+		case 'i':
+			editor.mode = INSERT;
+			break;
+	}
+}
+
+void editor_process_insert_keypress(char c)
+{
+	switch (c) {
+		case '\e':
+		case CTRL_KEY('c'):
+			editor.mode = NORMAL;
+			break;
 		default:
 			editor_insert_char(c);
 	}
+}
+
+void editor_process_keypress()
+{
+	char c = editor_read_key();
+	
+	if (editor.mode == NORMAL)
+		editor_process_normal_keypress(c);
+	else
+		editor_process_insert_keypress(c);
 }
 
 /*** init ***/
@@ -419,6 +449,7 @@ void init_editor()
 	editor.row_offset = 0;
 	editor.col_offset = 0;
 	editor.rows = NULL;
+	editor.mode = NORMAL;
 	editor.filename = NULL;
 
 	int result = get_window_size(&editor.screen_rows, &editor.screen_cols);
